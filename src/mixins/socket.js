@@ -1,5 +1,6 @@
 import { io } from "socket.io-client";
 import { useToast } from "vue-toastification";
+import jwt_decode from "jwt-decode";
 const toast = useToast();
 
 let socket;
@@ -217,6 +218,15 @@ export default {
             return (this.remember) ? localStorage : sessionStorage;
         },
 
+        getJWTPayload() {
+            const jwtToken = this.$root.storage().token;
+
+            if (jwtToken && jwtToken !== "autoLogin") {
+                return jwt_decode(jwtToken);
+            }
+            return undefined;
+        },
+
         getSocket() {
             return socket;
         },
@@ -265,10 +275,10 @@ export default {
         },
 
         logout() {
+            socket.emit("logout", () => { });
             this.storage().removeItem("token");
             this.socket.token = null;
             this.loggedIn = false;
-
             this.clearData();
         },
 

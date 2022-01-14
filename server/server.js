@@ -41,7 +41,7 @@ console.log("Importing this project modules");
 debug("Importing Monitor");
 const Monitor = require("./model/monitor");
 debug("Importing Settings");
-const { getSettings, setSettings, setting, initJWTSecret, checkLogin, startUnitTest, FBSD } = require("./util-server");
+const { getSettings, setSettings, setting, initJWTSecret, checkLogin, startUnitTest, FBSD, errorLog } = require("./util-server");
 
 debug("Importing Notification");
 const { Notification } = require("./notification");
@@ -120,6 +120,7 @@ module.exports.io = io;
 const { sendNotificationList, sendHeartbeatList, sendImportantHeartbeatList, sendInfo } = require("./client");
 const { statusPageSocketHandler } = require("./socket-handlers/status-page-socket-handler");
 const databaseSocketHandler = require("./socket-handlers/database-socket-handler");
+const TwoFA = require("./2fa");
 
 app.use(express.json());
 
@@ -176,7 +177,7 @@ exports.entryPage = "dashboard";
 
 (async () => {
     Database.init(args);
-    await initDatabase();
+    await initDatabase(testMode);
 
     exports.entryPage = await setting("entryPage");
 
@@ -185,6 +186,15 @@ exports.entryPage = "dashboard";
     // ***************************
     // Normal Router here
     // ***************************
+
+    // Entry Page
+    app.get("/", async (_request, response) => {
+        if (exports.entryPage === "statusPage") {
+            response.redirect("/status");
+        } else {
+            response.redirect("/dashboard");
+        }
+    });
 
     // Robots.txt
     app.get("/robots.txt", async (_request, response) => {
@@ -291,9 +301,8 @@ exports.entryPage = "dashboard";
             let user = await login(data.username, data.password);
 
             if (user) {
-                afterLogin(socket, user);
-
                 if (user.twofa_status == 0) {
+                    afterLogin(socket, user);
                     callback({
                         ok: true,
                         token: jwt.sign({
@@ -312,6 +321,7 @@ exports.entryPage = "dashboard";
                     let verify = notp.totp.verify(data.token, user.twofa_secret, twofa_verification_opts);
 
                     if (user.twofa_last_token !== data.token && verify) {
+                        afterLogin(socket, user);
 
                         await R.exec("UPDATE `user` SET twofa_last_token = ? WHERE id = ? ", [
                             data.token,
@@ -411,10 +421,7 @@ exports.entryPage = "dashboard";
         socket.on("disable2FA", async (callback) => {
             try {
                 checkLogin(socket);
-
-                await R.exec("UPDATE `user` SET twofa_status = 0 WHERE id = ? ", [
-                    socket.userID,
-                ]);
+                await TwoFA.disable2FA(socket.userID);
 
                 callback({
                     ok: true,
@@ -532,8 +539,8 @@ exports.entryPage = "dashboard";
 
                 await updateMonitorNotification(bean.id, notificationIDList);
 
-                await startMonitor(socket.userID, bean.id);
                 await sendMonitorList(socket);
+                await startMonitor(socket.userID, bean.id);
 
                 callback({
                     ok: true,
@@ -566,6 +573,8 @@ exports.entryPage = "dashboard";
                 bean.method = monitor.method;
                 bean.body = monitor.body;
                 bean.headers = monitor.headers;
+                bean.basic_auth_user = monitor.basic_auth_user;
+                bean.basic_auth_pass = monitor.basic_auth_pass;
                 bean.interval = monitor.interval;
                 bean.retryInterval = monitor.retryInterval;
                 bean.hostname = monitor.hostname;
@@ -1130,6 +1139,8 @@ exports.entryPage = "dashboard";
                                 method: monitorListData[i].method || "GET",
                                 body: monitorListData[i].body,
                                 headers: monitorListData[i].headers,
+                                basic_auth_user: monitorListData[i].basic_auth_user,
+                                basic_auth_pass: monitorListData[i].basic_auth_pass,
                                 interval: monitorListData[i].interval,
                                 retryInterval: retryInterval,
                                 hostname: monitorListData[i].hostname,
@@ -1408,14 +1419,14 @@ async function getMonitorJSONList(userID) {
     return result;
 }
 
-async function initDatabase() {
+async function initDatabase(testMode = false) {
     if (! fs.existsSync(Database.path)) {
         console.log("Copying Database");
         fs.copyFileSync(Database.templatePath, Database.path);
     }
 
     console.log("Connecting to the Database");
-    await Database.connect();
+    await Database.connect(testMode);
     console.log("Connected");
 
     // Patch the database
@@ -1529,5 +1540,6 @@ gracefulShutdown(server, {
 // Catch unexpected errors here
 process.addListener("unhandledRejection", (error, promise) => {
     console.trace(error);
+    errorLog(error, false);
     console.error("If you keep encountering errors, please report to https://github.com/louislam/uptime-kuma/issues");
 });
