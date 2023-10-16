@@ -6,6 +6,9 @@ class WeCom extends NotificationProvider {
 
     name = "WeCom";
 
+    /**
+     * @inheritdoc
+     */
     async send(notification, msg, monitorJSON = null, heartbeatJSON = null) {
         let okMsg = "Sent Successfully.";
 
@@ -24,12 +27,18 @@ class WeCom extends NotificationProvider {
         }
     }
 
+    /**
+     * Generate the message to send
+     * @param {object} heartbeatJSON Heartbeat details (For Up/Down only)
+     * @param {string} msg General message
+     * @returns {object} Message
+     */
     composeMessage(heartbeatJSON, msg) {
         let title;
-        if (msg != null && heartbeatJSON != null && heartbeatJSON['status'] == UP) {
+        if (msg != null && heartbeatJSON != null && heartbeatJSON["status"] === UP) {
             title = "UptimeKuma Monitor Up";
         }
-        if (msg != null && heartbeatJSON != null && heartbeatJSON["status"] == DOWN) {
+        if (msg != null && heartbeatJSON != null && heartbeatJSON["status"] === DOWN) {
             title = "UptimeKuma Monitor Down";
         }
         if (msg != null) {
